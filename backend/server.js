@@ -41,6 +41,11 @@ app.get('/', (req, res) => {
   res.send('Reelico API is running...');
 });
 
+// ✅ Health route (added)
+app.get('/health', (req, res) => {
+  res.send('ok');
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
