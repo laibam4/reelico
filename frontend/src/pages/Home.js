@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
-import { Search, Heart, Share2, Film, Calendar, Tag, Shield, Upload } from 'lucide-react';
+import { Search, Heart, Share2, Film, Calendar, Tag, Shield } from 'lucide-react';
 
 const prettyBytes = (n = 0) => {
   if (!Number.isFinite(n)) return '0 B';
@@ -197,13 +197,6 @@ const Home = () => {
         {/* Header row */}
         <div className="flex items-center justify-between gap-3 mb-6">
           <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">Explore Videos</h1>
-          <Link
-            to="/upload"
-            className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium transition"
-          >
-            <Upload className="w-4 h-4" />
-            Upload
-          </Link>
         </div>
 
         {/* Search */}
