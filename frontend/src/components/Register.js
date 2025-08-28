@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, UserCheck } from 'lucide-react';
+import api from '../services/api'; // ✅ use central axios instance
 
 const Register = () => {
   const [form, setForm] = useState({
@@ -14,9 +14,6 @@ const Register = () => {
 
   const navigate = useNavigate();
 
-  // ✅ Use Azure backend URL set in env (fallback to localhost for dev)
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
@@ -24,7 +21,8 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post(`${API_BASE}/api/auth/register`, form);
+      // ✅ calls your Azure backend via api.js baseURL
+      const res = await api.post('/api/auth/register', form);
       alert(res.data.message);
       navigate('/login');
     } catch (err) {
