@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import api from '../services/api'; // ✅ central API client
 
 const Login = () => {
   const [form, setForm] = useState({ email: '', password: '' });
@@ -16,10 +16,11 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/login', form);
+      // ✅ call Azure backend
+      const res = await api.post('/api/auth/login', form);
       alert(`Login successful! Welcome, ${res.data.user.username}`);
 
-      // Store auth for header logic
+      // Store auth for later use
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
 
