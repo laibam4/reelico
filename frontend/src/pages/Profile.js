@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import axios from 'axios';
+import api from '../services/api'; // ✅ central API client
 import { User, Upload, Film, Calendar, Tag, Shield } from 'lucide-react';
 
 const prettyBytes = (n = 0) => {
@@ -46,7 +46,7 @@ const Profile = () => {
         setLoading(true);
         setErr('');
         const token = localStorage.getItem('token');
-        const res = await axios.get(`http://localhost:5000/api/videos?creator=${userId}`, {
+        const res = await api.get(`/api/videos?creator=${userId}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!mounted) return;
