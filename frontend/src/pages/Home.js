@@ -1,289 +1,244 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import VideoList from '../components/VideoList';
-import { 
-  Play, Star, TrendingUp, Users, Search, Menu, X, Upload, Bell, User, 
-  ChevronRight, Eye, Heart, Share2, Clock, Award, Flame 
-} from 'lucide-react';
+import api from '../services/api';
+import Navbar from '../components/Navbar';
+import { Search, Heart, Share2, Film, Calendar, Tag, Shield, Upload } from 'lucide-react';
+
+const prettyBytes = (n = 0) => {
+  if (!Number.isFinite(n)) return '0 B';
+  const u = ['B','KB','MB','GB','TB']; let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
+};
 
 const Home = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [query, setQuery] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
 
-  const stats = [
-    { label: "Active Users", value: "10M+", icon: <Users className="w-6 h-6" /> },
-    { label: "Videos Uploaded", value: "500K+", icon: <Upload className="w-6 h-6" /> },
-    { label: "Hours Watched", value: "1B+", icon: <Clock className="w-6 h-6" /> },
-    { label: "Creators", value: "100K+", icon: <Star className="w-6 h-6" /> }
-  ];
+  // liked set persisted in localStorage
+  const [liked, setLiked] = useState(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('likedVideos') || '[]'));
+    } catch { return new Set(); }
+  });
 
-  const categories = [
-    { id: 'all', name: 'All', icon: <Star className="w-4 h-4" /> },
-    { id: 'trending', name: 'Trending', icon: <TrendingUp className="w-4 h-4" /> },
-    { id: 'nature', name: 'Nature', icon: <Eye className="w-4 h-4" /> },
-    { id: 'tutorial', name: 'Tutorial', icon: <Award className="w-4 h-4" /> },
-    { id: 'cooking', name: 'Cooking', icon: <Heart className="w-4 h-4" /> },
-    { id: 'documentary', name: 'Documentary', icon: <Flame className="w-4 h-4" /> },
-  ];
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900">
-      {/* Navigation Header */}
-      <nav className="bg-black/20 backdrop-blur-lg border-b border-white/10 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                  <Play className="w-6 h-6 text-white" />
-                </div>
-                <span className="text-2xl font-bold text-white">Reelico</span>
-              </div>
-            </div>
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setErr('');
+        const res = await api.get('/api/videos', {
+          params: debouncedQ ? { search: debouncedQ } : {},
+        });
+        if (!on) return;
+        setVideos(Array.isArray(res.data) ? res.data : []);
+      } catch (e) {
+        if (!on) return;
+        setErr(e?.response?.data?.message || 'Failed to load videos');
+      } finally {
+        if (on) setLoading(false);
+      }
+    })();
+    return () => { on = false; };
+  }, [debouncedQ]);
 
-            <div className="hidden md:flex items-center space-x-6">
-              <div className="relative">
-                <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search videos..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-white/10 border border-white/20 rounded-full pl-10 pr-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 w-80"
-                />
-              </div>
-              
-              <Link to="/upload" className="p-2 text-gray-300 hover:text-white transition-colors">
-                <Upload className="w-6 h-6" />
-              </Link>
-              <button className="p-2 text-gray-300 hover:text-white transition-colors">
-                <Bell className="w-6 h-6" />
-              </button>
-              <Link to="/profile" className="p-2 text-gray-300 hover:text-white transition-colors">
-                <User className="w-6 h-6" />
-              </Link>
-            </div>
+  const toggleLike = (id) => {
+    setLiked(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem('likedVideos', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
-            <button
-              className="md:hidden text-white"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+  const handleShare = async (video) => {
+    const url = video.videoUrl || window.location.href;
+    const shareData = {
+      title: video.title || 'Reelico video',
+      text: 'Check out this video on Reelico!',
+      url,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(url);
+        alert('Link copied to clipboard!');
+      }
+    } catch {
+      // ignore cancel
+    }
+  };
+
+  const content = useMemo(() => {
+    if (loading) return <div className="text-gray-500">Loading videos…</div>;
+    if (err) return <div className="text-red-600">{err}</div>;
+    if (videos.length === 0) {
+      return (
+        <div className="text-gray-600">
+          No videos yet.
+          <Link to="/upload" className="text-green-600 hover:text-green-700 font-medium ml-1">
+            Upload one
+          </Link>
+          {' '}to get started.
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {videos.map(v => {
+          const id = String(v._id || v.blobName || v.videoUrl || Math.random());
+          const likedNow = liked.has(id);
+          return (
+            <motion.div
+              key={id}
+              className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.35 }}
             >
-              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Mobile Menu */}
-      {isMenuOpen && (
-        <motion.div 
-          className="md:hidden bg-black/95 backdrop-blur-lg border-b border-white/10"
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-        >
-          <div className="px-4 py-4 space-y-4">
-            <div className="relative">
-              <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search videos..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-white/10 border border-white/20 rounded-full pl-10 pr-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
-              />
-            </div>
-            <div className="flex space-x-4">
-              <Link to="/upload" className="p-2 text-gray-300 hover:text-white transition-colors">
-                <Upload className="w-6 h-6" />
-              </Link>
-              <button className="p-2 text-gray-300 hover:text-white transition-colors">
-                <Bell className="w-6 h-6" />
-              </button>
-              <Link to="/profile" className="p-2 text-gray-300 hover:text-white transition-colors">
-                <User className="w-6 h-6" />
-              </Link>
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Hero Section */}
-      <section className="relative py-16 px-4">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            className="text-center"
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Play className="w-8 h-8 text-white" />
+              <div className="aspect-video bg-black">
+                {v.videoUrl ? (
+                  <video
+                    src={v.videoUrl}
+                    controls
+                    className="w-full h-full object-contain"
+                    preload="metadata"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    <Film className="w-6 h-6 mr-2" /> No preview
+                  </div>
+                )}
               </div>
-            </div>
-            <h1 className="text-4xl md:text-6xl font-bold text-white mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              Welcome to Reelico
-            </h1>
-            <p className="text-lg md:text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-              Discover amazing videos from creators around the world
-            </p>
-          </motion.div>
-        </div>
-      </section>
 
-      {/* Stats Section */}
-      <section className="py-12 px-4 bg-black/20">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {stats.map((stat, index) => (
-              <motion.div 
-                key={index} 
-                className="text-center group hover:scale-105 transition-transform duration-300"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <div className="flex justify-center mb-3">
-                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center group-hover:animate-pulse">
-                    {stat.icon}
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-semibold text-gray-900 truncate">
+                    {v.title || v.originalName || 'Untitled'}
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleLike(id)}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-sm transition ${
+                        likedNow
+                          ? 'border-red-200 text-red-600 bg-red-50'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                      aria-pressed={likedNow}
+                      title={likedNow ? 'Unlike' : 'Like'}
+                    >
+                      <Heart className="w-4 h-4" />
+                      <span>{likedNow ? 'Liked' : 'Like'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleShare(v)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition"
+                      title="Share"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Share</span>
+                    </button>
                   </div>
                 </div>
-                <div className="text-2xl md:text-3xl font-bold text-white mb-1">{stat.value}</div>
-                <div className="text-gray-400 text-sm">{stat.label}</div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* Category Filter */}
-      <section className="py-8 px-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-wrap gap-3 justify-center">
-            {categories.map((category, index) => (
-              <motion.button
-                key={category.id}
-                className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white rounded-full font-medium transition-all duration-300 border border-white/10 hover:border-white/30"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                {category.icon}
-                <span>{category.name}</span>
-              </motion.button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Featured Videos Section */}
-      <section className="py-16 px-4">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <div className="flex items-center justify-between mb-12">
-              <h2 className="text-4xl font-bold text-white flex items-center space-x-3">
-                <span>🎬</span>
-                <span>Featured Videos on Reelico</span>
-              </h2>
-              <button className="text-blue-400 hover:text-blue-300 flex items-center space-x-2 font-medium transition-colors">
-                <span>View All</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* VideoList Component with enhanced container */}
-            <div className="bg-black/20 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-              <VideoList />
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Call to Action */}
-      <section className="py-16 px-4 bg-black/20">
-        <div className="max-w-4xl mx-auto text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-          >
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              Ready to Share Your Story?
-            </h2>
-            <p className="text-lg text-gray-300 mb-8">
-              Join thousands of creators who are already sharing their passion with the world
-            </p>
-            <Link 
-              to="/upload"
-              className="bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300 transform hover:scale-105 inline-flex items-center space-x-2"
-            >
-              <Upload className="w-5 h-5" />
-              <span>Start Creating Today</span>
-            </Link>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-black/40 backdrop-blur-lg border-t border-white/10 py-12 px-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div>
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                  <Play className="w-5 h-5 text-white" />
+                <div className="mt-2 text-sm text-gray-600">
+                  {v.publisher ? `Publisher: ${v.publisher}` : ''}
+                  {v.publisher && v.producer ? ' • ' : ''}
+                  {v.producer ? `Producer: ${v.producer}` : ''}
                 </div>
-                <span className="text-xl font-bold text-white">Reelico</span>
+
+                <div className="mt-2 text-xs text-gray-500 flex items-center flex-wrap gap-3">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    {new Date(v.createdAt || Date.now()).toLocaleString()}
+                  </span>
+                  {v.genre && (
+                    <span className="inline-flex items-center gap-1">
+                      <Tag className="w-3 h-3" />
+                      {v.genre}
+                    </span>
+                  )}
+                  {v.ageRating && (
+                    <span className="inline-flex items-center gap-1">
+                      <Shield className="w-3 h-3" />
+                      {v.ageRating}
+                    </span>
+                  )}
+                  {typeof v.size === 'number' && (
+                    <span>{prettyBytes(v.size)}</span>
+                  )}
+                </div>
               </div>
-              <p className="text-gray-400">
-                The premier platform for video creators and viewers worldwide.
-              </p>
-            </div>
-            
-            <div>
-              <h3 className="text-white font-semibold mb-4">Platform</h3>
-              <ul className="space-y-2 text-gray-400">
-                <li><Link to="/" className="hover:text-white transition-colors">Browse Videos</Link></li>
-                <li><Link to="/upload" className="hover:text-white transition-colors">Upload Content</Link></li>
-                <li><a href="#" className="hover:text-white transition-colors">Creator Tools</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Analytics</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h3 className="text-white font-semibold mb-4">Community</h3>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">Creator Program</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Guidelines</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Support</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Blog</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h3 className="text-white font-semibold mb-4">Company</h3>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">About Us</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Careers</a></li>
-                <li><Link to="/profile" className="hover:text-white transition-colors">Profile</Link></li>
-                <li><a href="#" className="hover:text-white transition-colors">Terms</a></li>
-              </ul>
-            </div>
-          </div>
-          
-          <div className="border-t border-white/10 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; 2025 Reelico. All rights reserved.</p>
+            </motion.div>
+          );
+        })}
+      </div>
+    );
+  }, [videos, loading, err, liked]);
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Top navbar (same as others) */}
+      <Navbar />
+
+      {/* Content */}
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">Explore Videos</h1>
+          <Link
+            to="/upload"
+            className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium transition"
+          >
+            <Upload className="w-4 h-4" />
+            Upload
+          </Link>
+        </div>
+
+        {/* Search */}
+        <div className="mb-6">
+          <div className="relative max-w-xl">
+            <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by title, genre, or publisher…"
+              className="w-full bg-white border border-gray-300 rounded-md pl-10 pr-3 py-2.5 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            />
           </div>
         </div>
-      </footer>
+
+        {/* Feed */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="bg-white border border-gray-200 rounded-xl p-4"
+        >
+          {content}
+        </motion.div>
+
+        {/* Footer */}
+        <div className="text-center text-gray-400 text-sm mt-10">
+          © {new Date().getFullYear()} Reelico. All rights reserved.
+        </div>
+      </div>
     </div>
   );
 };
