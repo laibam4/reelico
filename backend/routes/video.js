@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const Video = require('../models/Video');
+const { BlobServiceClient } = require('@azure/storage-blob'); // ✅ Azure Blob
 
 // ---------- auth (upload must be logged in) ----------
 function requireAuth(req, res, next) {
@@ -24,15 +25,32 @@ function requireAuth(req, res, next) {
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-// ---------- multer storage ----------
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-  },
-});
+// ---------- Azure Blob config ----------
+const AZURE_CONN = process.env.AZURE_STORAGE_CONNECTION_STRING;
+const CONTAINER = process.env.AZURE_STORAGE_CONTAINER || 'videos';
+
+let containerClient = null;
+try {
+  if (!AZURE_CONN) {
+    console.error('❌ AZURE_STORAGE_CONNECTION_STRING is missing');
+  } else {
+    const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONN);
+    containerClient = blobServiceClient.getContainerClient(CONTAINER);
+  }
+} catch (e) {
+  console.error('❌ Failed to init Azure Blob:', e?.message || e);
+}
+
+// ---------- multer storage (use memory for Blob uploads) ----------
+const storage = multer.memoryStorage(); // <-- changed from disk to memory for Blob upload
 const upload = multer({ storage });
+
+// Utility to create unique blob name
+function makeBlobName(original) {
+  const ext = path.extname(original || '.mp4') || '.mp4';
+  const base = path.basename(original || 'video', ext).replace(/\s+/g, '-');
+  return `${Date.now()}-${Math.round(Math.random() * 1e9)}-${base}${ext}`;
+}
 
 // POST /api/videos/upload   (requires auth)
 router.post('/upload', requireAuth, upload.single('video'), async (req, res) => {
@@ -44,19 +62,37 @@ router.post('/upload', requireAuth, upload.single('video'), async (req, res) => 
       return res.status(400).json({ message: 'Title, publisher and producer are required' });
     }
 
+    if (!containerClient) {
+      return res.status(500).json({ message: 'Storage not configured' });
+    }
+
+    // Upload buffer to Azure Blob
+    const blobName = makeBlobName(req.file.originalname);
+    const blockBlob = containerClient.getBlockBlobClient(blobName);
+
+    await blockBlob.uploadData(req.file.buffer, {
+      blobHTTPHeaders: { blobContentType: req.file.mimetype || 'video/mp4' },
+    });
+
+    // Build a backend stream URL so the container can remain PRIVATE
+    const streamUrl = `${req.protocol}://${req.get('host')}/api/videos/stream/${encodeURIComponent(blobName)}`;
+
     const doc = await Video.create({
       title,
       publisher,
       producer,
       genre,
       ageRating,
-      videoUrl: `/uploads/${path.basename(req.file.path)}`,
+      videoUrl: streamUrl,                 // <-- now served via backend stream route
+      blobName,                            // store blob name for reference
       creator: req.userId,                 // tie to logged-in user
-      size: req.file.size || undefined,    // may be undefined in your schema; harmless
+      size: req.file.size || undefined,
+      mimeType: req.file.mimetype || undefined,
     });
 
     return res.status(201).json({ message: 'Video uploaded successfully', video: doc });
   } catch (err) {
+    console.error('Upload failed:', err);
     return res.status(500).json({ message: 'Upload failed', error: err.message });
   }
 });
@@ -83,6 +119,51 @@ router.get('/', async (req, res) => {
     res.json(items);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch videos', error: err.message });
+  }
+});
+
+// GET /api/videos/stream/:blobName  (supports Range for video playback)
+router.get('/stream/:blobName', async (req, res) => {
+  try {
+    if (!containerClient) {
+      return res.status(500).json({ message: 'Storage not configured' });
+    }
+
+    const blobName = req.params.blobName;
+    const blockBlob = containerClient.getBlockBlobClient(blobName);
+
+    const props = await blockBlob.getProperties();
+    const fileSize = Number(props.contentLength || 0);
+    const contentType = props.contentType || 'video/mp4';
+
+    const range = req.headers.range;
+    if (range) {
+      const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(startStr, 10);
+      const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+
+      res.status(206);
+      res.set({
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': contentType,
+      });
+
+      const download = await blockBlob.download(start, chunkSize);
+      download.readableStreamBody.pipe(res);
+    } else {
+      res.set({
+        'Content-Length': fileSize,
+        'Content-Type': contentType,
+      });
+      const download = await blockBlob.download(0);
+      download.readableStreamBody.pipe(res);
+    }
+  } catch (err) {
+    console.error('Stream error:', err);
+    res.status(404).json({ message: 'Blob not found' });
   }
 });
 
