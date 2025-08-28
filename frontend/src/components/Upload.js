@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { motion } from 'framer-motion';
 import { CloudUpload, Film, User, Building, Tag, Shield, FileVideo } from 'lucide-react';
 
@@ -31,7 +31,7 @@ const Upload = () => {
     try {
       setBusy(true);
       const token = localStorage.getItem('token');
-      const res = await axios.post('http://localhost:5000/api/videos/upload', data, {
+      const res = await api.post('/api/videos/upload', data, {
         headers: {
           'Content-Type': 'multipart/form-data',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -198,6 +198,7 @@ const Upload = () => {
                   ? 'bg-gray-400 cursor-not-allowed text-white' 
                   : 'bg-green-600 hover:bg-green-700 text-white'
               }`}
+              onClick={handleSubmit}
             >
               {busy ? 'Uploading...' : 'Upload'}
             </motion.button>
