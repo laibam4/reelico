@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
-import Navbar from '../components/Navbar';
 import { Search, Heart, Share2, Film, Calendar, Tag, Shield, Upload } from 'lucide-react';
 
 const prettyBytes = (n = 0) => {
@@ -193,9 +192,6 @@ const Home = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top navbar (same as others) */}
-      <Navbar />
-
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 py-6">
         {/* Header row */}
